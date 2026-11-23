@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Delfin Boutique | שוברים</title>
+  <style>
+    :root { color-scheme: light; --ink:#202a35; --muted:#687582; --line:#e5e9ed; --blue:#174f70; --pale:#f3f7f9; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:#f7f8f8; color:var(--ink); font-family:Arial, sans-serif; }
+    header { padding:38px 20px 24px; text-align:center; background:white; border-bottom:1px solid var(--line); }
+    .brand { margin:0; font-family:Georgia,serif; font-size:clamp(28px,5vw,42px); letter-spacing:2px; font-weight:600; }
+    header p { margin:10px 0 0; color:var(--muted); font-size:14px; }
+    main { width:min(900px, calc(100% - 32px)); margin:30px auto 60px; }
+    #status { text-align:center; min-height:24px; margin-bottom:16px; color:var(--muted); font-size:14px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
+    .voucher { background:white; border:1px solid var(--line); padding:22px; text-align:center; box-shadow:0 5px 20px #1a2b3a08; }
+    .voucher h2 { margin:0 0 8px; font-size:19px; font-weight:600; }
+    .voucher p { margin:0 0 18px; color:var(--muted); font-size:13px; }
+    .state { min-height:22px; margin-bottom:14px; font-size:14px; font-weight:700; color:var(--blue); }
+    .state.used { color:#8b4b36; }
+    button { width:100%; border:0; padding:12px 14px; font-size:14px; cursor:pointer; font-weight:700; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    .redeem { background:var(--blue); color:white; }
+    .reset { margin-top:8px; background:var(--pale); color:var(--ink); border:1px solid var(--line); }
+    footer { text-align:center; color:#87919a; font-size:12px; padding:0 20px 30px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 class="brand">Delfin Boutique</h1>
+    <p>מערכת מימוש שוברים</p>
+  </header>
+
+  <main>
+    <div id="status" role="status" aria-live="polite">טוען שוברים...</div>
+    <section class="grid" id="vouchers" aria-label="רשימת שוברים"></section>
+  </main>
+  <footer>סטטוס השוברים נשמר ומתעדכן בין מכשירים.</footer>
+
+  <script>
+    const FUNCTION_URL = "https://rohxzbilltztjjxmbrye.supabase.co/functions/v1/voucher-actions";
+    const PUBLIC_KEY = "sb_publishable_HSb3Vb-Bm_9kk7JJKTZyag_ykco6Mll";
+    const headers = { "Content-Type": "application/json", "apikey": PUBLIC_KEY };
+
+    const statusEl = document.getElementById("status");
+    const grid = document.getElementById("vouchers");
+
+    async function request(path = "", options = {}) {
+      const response = await fetch(FUNCTION_URL + path, {
+        ...options,
+        headers: { ...headers, ...(options.headers || {}) }
+      });
+      if (!response.ok) throw new Error("הבקשה נכשלה");
+      return response.json();
+    }
+
+    function render(items) {
+      grid.innerHTML = "";
+      items.forEach(item => {
+        const card = document.createElement("article");
+        card.className = "voucher";
+
+        const title = document.createElement("h2");
+        title.textContent = `קופון ${item.id}`;
+
+        const description = document.createElement("p");
+        description.textContent = "Delfin Boutique";
+
+        const state = document.createElement("div");
+        state.className = "state" + (item.redeemed ? " used" : "");
+        state.textContent = item.redeemed ? "השובר מומש" : "השובר עדיין זמין";
+
+        const redeem = document.createElement("button");
+        redeem.className = "redeem";
+        redeem.textContent = item.redeemed ? "כבר מומש" : "מימוש השובר";
+        redeem.disabled = item.redeemed;
+        redeem.addEventListener("click", async () => {
+          if (!confirm(`לממש את קופון ${item.id}? לא ניתן יהיה לממש אותו שוב עד לאיפוס.`)) return;
+          await performAction({ action: "redeem", id: item.id }, "מימוש השובר");
+        });
+
+        const reset = document.createElement("button");
+        reset.className = "reset";
+        reset.textContent = "איפוס קופון";
+        reset.addEventListener("click", async () => {
+          const password = prompt("הזן סיסמת איפוס:");
+          if (password === null) return;
+          await performAction({ action: "reset", id: item.id, password }, "איפוס הקופון");
+        });
+
+        card.append(title, description, state, redeem, reset);
+        grid.appendChild(card);
+      });
+    }
+
+    async function refresh() {
+      statusEl.textContent = "מעדכן נתונים...";
+      const items = await request();
+      render(items);
+      statusEl.textContent = "הנתונים מעודכנים.";
+    }
+
+    async function performAction(payload, label) {
+      statusEl.textContent = `${label}...`;
+      try {
+        const result = await request("", { method: "POST", body: JSON.stringify(payload) });
+        if (!result.success) {
+          statusEl.textContent = payload.action === "reset" ? "הסיסמה שגויה או שהאיפוס נכשל." : "השובר כבר מומש או שהפעולה נכשלה.";
+        } else {
+          statusEl.textContent = payload.action === "reset" ? "הקופון אופס בהצלחה." : "השובר סומן כמומש.";
+        }
+        await refresh();
+      } catch (error) {
+        statusEl.textContent = "לא ניתן להתחבר כרגע. בדוק את החיבור ונסה שוב.";
+      }
+    }
+
+    refresh().catch(() => {
+      statusEl.textContent = "טעינת השוברים נכשלה. בדוק את החיבור לשרת.";
+    });
+
+    // רענון תקופתי כדי להציג שינויים שבוצעו ממכשיר אחר.
+    setInterval(() => refresh().catch(() => {}), 15000);
+  </script>
+</body>
+</html>
